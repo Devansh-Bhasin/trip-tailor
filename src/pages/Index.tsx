@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Compass, Send, Sparkles } from "lucide-react";
+import { Sparkles, Send, User, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import ChatMessage from "@/components/ChatMessage";
 import AdventureCard from "@/components/AdventureCard";
+import OnboardingForm, { UserPreferences } from "@/components/OnboardingForm";
 import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
@@ -29,12 +30,22 @@ interface Adventure {
 }
 
 const Index = () => {
+  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [adventures, setAdventures] = useState<Adventure[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const saved = localStorage.getItem("tripTailorPreferences");
+    if (saved) {
+      setUserPreferences(JSON.parse(saved));
+      setShowOnboarding(false);
+    }
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,6 +54,32 @@ const Index = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, adventures]);
+
+  const handleOnboardingComplete = (preferences: UserPreferences) => {
+    setUserPreferences(preferences);
+    localStorage.setItem("tripTailorPreferences", JSON.stringify(preferences));
+    setShowOnboarding(false);
+    
+    toast({
+      title: "Profile saved! 🎉",
+      description: "Now I can tailor adventures just for you.",
+    });
+  };
+
+  const buildContextualPrompt = (userMessage: string) => {
+    if (!userPreferences) return userMessage;
+
+    const context = `User preferences: 
+- Interests: ${userPreferences.interests.join(", ")}
+- Budget: ${userPreferences.budgetRange}
+- Transportation: ${userPreferences.transportation}
+- Group size: ${userPreferences.groupSize}
+- Preferred areas: ${userPreferences.favoriteAreas.join(", ")}
+
+User request: ${userMessage}`;
+
+    return context;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,8 +92,10 @@ const Index = () => {
     setAdventures([]);
 
     try {
+      const contextualPrompt = buildContextualPrompt(userMessage);
+
       const { data, error } = await supabase.functions.invoke("generate-adventure", {
-        body: { message: userMessage },
+        body: { message: contextualPrompt },
       });
 
       if (error) {
@@ -69,9 +108,9 @@ const Index = () => {
           ...prev,
           {
             role: "assistant",
-            content: `I've created ${data.adventures.length} personalized adventure${
+            content: `I've tailored ${data.adventures.length} perfect adventure${
               data.adventures.length > 1 ? "s" : ""
-            } for you! Check them out below:`,
+            } based on your preferences! 🎯`,
           },
         ]);
       } else {
@@ -103,54 +142,75 @@ const Index = () => {
     }
   };
 
-  const examplePrompts = [
-    "Saturday afternoon, 2 friends, love sushi, low budget, using transit near Langley",
-    "Evening date night in Vancouver, upscale dining, driving",
-    "Family day in Richmond, 4 people, outdoor activities, under $100 total",
+  const quickPrompts = [
+    "Plan a romantic evening",
+    "Fun day with friends",
+    "Family adventure",
+    "Solo exploration",
   ];
 
+  if (showOnboarding) {
+    return <OnboardingForm onComplete={handleOnboardingComplete} />;
+  }
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Hero Header */}
-      <header className="bg-gradient-hero text-white py-8 px-4 shadow-strong">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center gap-3 mb-2">
-            <Compass className="w-8 h-8" />
-            <h1 className="text-3xl font-bold">Metro Vancouver Adventures</h1>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Modern Header */}
+      <header className="sticky top-0 z-50 bg-gradient-card backdrop-blur-lg border-b border-border shadow-medium">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                TripTailor
+              </h1>
+              <p className="text-xs text-muted-foreground">Tailored for you</p>
+            </div>
           </div>
-          <p className="text-white/90 text-lg">
-            Your AI-powered local adventure planner for Surrey, Richmond, Langley & beyond
-          </p>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setShowOnboarding(true)}
+          >
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">Preferences</span>
+          </Button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Initial State */}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
+        {/* Welcome State */}
         {messages.length === 0 && (
-          <div className="text-center space-y-6 animate-fade-in">
-            <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full">
-              <Sparkles className="w-4 h-4" />
-              <span className="text-sm font-medium">Powered by AI</span>
-            </div>
-
+          <div className="text-center space-y-8 animate-fade-in py-12">
             <div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">
-                What kind of adventure are you looking for?
+              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full mb-4">
+                <User className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  {userPreferences?.interests.length || 0} interests • {userPreferences?.budgetRange} budget
+                </span>
+              </div>
+              <h2 className="text-4xl font-bold text-foreground mb-3">
+                What's your next adventure?
               </h2>
-              <p className="text-muted-foreground">
-                Tell me about your plans and I'll create personalized itineraries
+              <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+                I've learned your preferences. Just tell me what you're in the mood for!
               </p>
             </div>
 
-            <div className="space-y-3 max-w-2xl mx-auto">
-              <p className="text-sm text-muted-foreground font-medium">Try these examples:</p>
-              {examplePrompts.map((prompt, idx) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto">
+              {quickPrompts.map((prompt, idx) => (
                 <button
                   key={idx}
                   onClick={() => setInput(prompt)}
-                  className="block w-full text-left p-4 rounded-lg bg-card hover:bg-muted/50 border border-border transition-colors shadow-soft hover:shadow-medium"
+                  className="p-4 rounded-xl bg-gradient-card border border-border hover:border-primary/50 transition-all duration-300 hover:shadow-medium group"
                 >
-                  <p className="text-sm text-card-foreground">{prompt}</p>
+                  <p className="text-sm font-medium group-hover:text-primary transition-colors">
+                    {prompt}
+                  </p>
                 </button>
               ))}
             </div>
@@ -165,14 +225,14 @@ const Index = () => {
             ))}
             {isLoading && (
               <div className="flex gap-3 justify-start">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-ocean flex items-center justify-center shadow-soft">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center shadow-glow">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <div className="bg-card rounded-2xl px-4 py-3 shadow-soft border border-border">
                   <div className="flex gap-2">
                     <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                    <div className="w-2 h-2 bg-primary rounded-full animate-pulse delay-100" />
-                    <div className="w-2 h-2 bg-primary rounded-full animate-pulse delay-200" />
+                    <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.2s" }} />
+                    <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.4s" }} />
                   </div>
                 </div>
               </div>
@@ -182,7 +242,7 @@ const Index = () => {
 
         {/* Adventure Cards */}
         {adventures.length > 0 && (
-          <div className="space-y-6 mb-6">
+          <div className="grid md:grid-cols-2 gap-6 mb-6">
             {adventures.map((adventure, idx) => (
               <AdventureCard key={idx} {...adventure} />
             ))}
@@ -192,21 +252,28 @@ const Index = () => {
         <div ref={messagesEndRef} />
       </main>
 
-      {/* Input Footer */}
-      <footer className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t border-border py-4 px-4 shadow-strong">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your ideal adventure..."
-            disabled={isLoading}
-            className="flex-1 shadow-soft"
-          />
-          <Button type="submit" disabled={isLoading || !input.trim()} className="gap-2">
-            <Send className="w-4 h-4" />
-            Send
-          </Button>
-        </form>
+      {/* Enhanced Input Footer */}
+      <footer className="sticky bottom-0 bg-gradient-card backdrop-blur-lg border-t border-border shadow-strong">
+        <div className="max-w-6xl mx-auto px-4 py-4">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Describe your perfect adventure..."
+              disabled={isLoading}
+              className="flex-1 rounded-xl shadow-soft border-2 focus:border-primary"
+            />
+            <Button 
+              type="submit" 
+              disabled={isLoading || !input.trim()} 
+              className="gap-2 rounded-xl shadow-medium hover:shadow-glow"
+              size="lg"
+            >
+              <Send className="w-4 h-4" />
+              <span className="hidden sm:inline">Send</span>
+            </Button>
+          </form>
+        </div>
       </footer>
     </div>
   );
